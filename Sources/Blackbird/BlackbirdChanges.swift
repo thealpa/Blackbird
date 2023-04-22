@@ -39,9 +39,9 @@ public extension Blackbird {
     ///
     /// For `BlackbirdModel` tables, ``BlackbirdModel/changePublisher(in:)`` provides a typed ``ModelChange`` instead.
     struct Change: Sendable {
-        internal let table: String
-        internal let primaryKeys: PrimaryKeyValues?
-        internal let columnNames: Blackbird.ColumnNames?
+        public let table: String
+        public let primaryKeys: PrimaryKeyValues?
+        public let columnNames: Blackbird.ColumnNames?
         
         /// Determine if a specific primary-key value may have changed.
         /// - Parameter key: The single-column primary-key value in question.
@@ -79,9 +79,9 @@ public extension Blackbird {
 
     /// A change to a table in a Blackbird database, as published by a ``ChangePublisher``.
     struct ModelChange<T: BlackbirdModel>: Sendable {
-        internal let type: T.Type
-        internal let primaryKeys: PrimaryKeyValues?
-        internal let columnNames: Blackbird.ColumnNames?
+        public let type: T.Type
+        public let primaryKeys: PrimaryKeyValues?
+        public let columnNames: Blackbird.ColumnNames?
 
         /// Determine if a specific primary-key value may have changed.
         /// - Parameter key: The single-column primary-key value in question.
