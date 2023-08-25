@@ -233,6 +233,8 @@ internal extension BlackbirdModel {
 }
 
 extension BlackbirdModel {
+    public typealias ChangePublisher = Blackbird.ModelChangePublisher<Self>
+
     public static var tableName: String { String(describing: Self.self) }
     public static var primaryKey: [BlackbirdColumnKeyPath] { [] }
     public static var indexes: [[BlackbirdColumnKeyPath]] { [] }
@@ -293,7 +295,7 @@ extension BlackbirdModel {
     ///
     /// > - The publisher may send from any thread.
     /// > - Changes may be over-reported.
-    public static func changePublisher(in database: Blackbird.Database) -> Blackbird.ModelChangePublisher<Self> {
+    public static func changePublisher(in database: Blackbird.Database) -> Self.ChangePublisher {
         database.changeReporter.changePublisher(for: self.tableName)
         .map { Blackbird.ModelChange(type: Self.self, from: $0) }
         .eraseToAnyPublisher()
@@ -310,7 +312,7 @@ extension BlackbirdModel {
     ///
     /// > - The publisher may send from any thread.
     /// > - Changes may be over-reported.
-    public static func changePublisher(in database: Blackbird.Database, primaryKey: Blackbird.Value? = nil, columns: [Self.BlackbirdColumnKeyPath] = []) -> Blackbird.ModelChangePublisher<Self> {
+    public static func changePublisher(in database: Blackbird.Database, primaryKey: Blackbird.Value? = nil, columns: [Self.BlackbirdColumnKeyPath] = []) -> Self.ChangePublisher {
         if primaryKey != nil, table.primaryKeys.count > 1 { fatalError("\(String(describing: Self.self)).changePublisher: Single-column primary key value specified on table with a multi-column primary key") }
         let selfType = Self.self
         
@@ -340,7 +342,7 @@ extension BlackbirdModel {
     ///
     /// > - The publisher may send from any thread.
     /// > - Changes may be over-reported.
-    public static func changePublisher(in database: Blackbird.Database, multicolumnPrimaryKey: [Blackbird.Value]?, columns: [Self.BlackbirdColumnKeyPath] = []) -> Blackbird.ModelChangePublisher<Self> {
+    public static func changePublisher(in database: Blackbird.Database, multicolumnPrimaryKey: [Blackbird.Value]?, columns: [Self.BlackbirdColumnKeyPath] = []) -> Self.ChangePublisher {
         let selfType = Self.self
         return database.changeReporter.changePublisher(for: self.tableName).filter { change in
             if let multicolumnPrimaryKey, let changedKeys = change.primaryKeys, !changedKeys.contains(multicolumnPrimaryKey) { return false }
@@ -368,7 +370,7 @@ extension BlackbirdModel {
     ///
     /// > - The publisher may send from any thread.
     /// > - Changes may be over-reported.
-    public static func changePublisher(in database: Blackbird.Database, primaryKey: Blackbird.Value? = nil, ignoredColumns: [Self.BlackbirdColumnKeyPath]) -> Blackbird.ModelChangePublisher<Self> {
+    public static func changePublisher(in database: Blackbird.Database, primaryKey: Blackbird.Value? = nil, ignoredColumns: [Self.BlackbirdColumnKeyPath]) -> Self.ChangePublisher {
         if primaryKey != nil, table.primaryKeys.count > 1 { fatalError("\(String(describing: Self.self)).changePublisher: Single-column primary key value specified on table with a multi-column primary key") }
         let selfType = Self.self
         
@@ -398,7 +400,7 @@ extension BlackbirdModel {
     ///
     /// > - The publisher may send from any thread.
     /// > - Changes may be over-reported.
-    public static func changePublisher(in database: Blackbird.Database, multicolumnPrimaryKey: [Blackbird.Value]?, ignoredColumns: [Self.BlackbirdColumnKeyPath]) -> Blackbird.ModelChangePublisher<Self> {
+    public static func changePublisher(in database: Blackbird.Database, multicolumnPrimaryKey: [Blackbird.Value]?, ignoredColumns: [Self.BlackbirdColumnKeyPath]) -> Self.ChangePublisher {
         let selfType = Self.self
         return database.changeReporter.changePublisher(for: self.tableName).filter { change in
             if let multicolumnPrimaryKey, let changedKeys = change.primaryKeys, !changedKeys.contains(multicolumnPrimaryKey) { return false }
@@ -826,7 +828,10 @@ extension BlackbirdModel {
         do {
             _ = try Self(from: decoder)
         } catch {
-            fatalError("Table \"\(table.name)\" definition defaults do not decode to model \(String(describing: self)): \(error)")
+            fatalError(
+                "Table \"\(table.name)\" definition defaults do not decode to model \(String(describing: self)): \(error).\n\n" +
+                "If \(table.name) defines custom CodingKeys, it must be declared as:\n\n    enum CodingKeys: String, BlackbirdCodingKey {...}\n"
+            )
         }
         
         // Check validity of data already in the database for special column types (non-optional URLs, enums)
@@ -1026,8 +1031,9 @@ extension BlackbirdModel {
         guard cacheLimit > 0 else { return try await resultFetcher(database) }
         var cacheKey: [Blackbird.Value] = [.text(query)]
         cacheKey.append(contentsOf: arguments)
-        if let cachedResult = database.cache.readQueryResult(tableName: tableName, cacheKey: cacheKey) as? T { return cachedResult }
         
+        if case .hit(let value) = database.cache.readQueryResult(tableName: tableName, cacheKey: cacheKey), let cachedResult = value as? T { return cachedResult }
+
         let result = try await resultFetcher(database)
         database.cache.writeQueryResult(tableName: tableName, cacheKey: cacheKey, result: result, entryLimit: cacheLimit)
         return result
@@ -1038,7 +1044,8 @@ extension BlackbirdModel {
         guard cacheLimit > 0 else { return try resultFetcher(database, core) }
         var cacheKey: [Blackbird.Value] = [.text(query)]
         cacheKey.append(contentsOf: arguments)
-        if let cachedResult = database.cache.readQueryResult(tableName: tableName, cacheKey: cacheKey) as? T { return cachedResult }
+        
+        if case .hit(let value) = database.cache.readQueryResult(tableName: tableName, cacheKey: cacheKey), let cachedResult = value as? T { return cachedResult }
         
         let result = try resultFetcher(database, core)
         database.cache.writeQueryResult(tableName: tableName, cacheKey: cacheKey, result: result, entryLimit: cacheLimit)

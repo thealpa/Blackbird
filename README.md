@@ -1,12 +1,23 @@
 # Blackbird
 
-A small, fast, lightweight SQLite database wrapper and model layer, based on modern Swift concurrency and `Codable`, with no other dependencies.
+A SQLite database wrapper and model layer, using Swift concurrency and `Codable`, with no other dependencies.
 
+Philosophy:
+
+* Prioritize speed of development over all else.
+* No code generation.
+* No schema definitions.
+* Automatic migrations.
+* Async by default.
+* Use Swift’s type system and key-paths instead of strings whenever possible.
+ 
 ## Project status
 
-Blackbird is an __alpha__. The API might change dramatically at any time.
+Blackbird is a __beta__.
 
-You shouldn't build anything against this yet. But it's close.
+Minor changes may still occur that break backwards compatibility with code or databases.
+
+I'm using Blackbird in shipping software now, but do so at your own risk.
 
 ## BlackbirdModel
 
@@ -99,8 +110,13 @@ Monitor for row- and column-level changes with Combine:
 
 ```swift
 let listener = Post.changePublisher(in: db).sink { change in
-    print("Post IDs changed: \(change.primaryKeys ?? "all")")
-    print(" Columns changed: \(change.columnNames ?? "all")")
+    if change.hasPrimaryKeyChanged(7) {
+        print("Post 7 has changed")
+    }
+
+    if change.hasColumnChanged(\.$title) {
+        print("A title has changed")
+    }
 }
 
 // Or monitor a single column by key-path:
@@ -121,7 +137,7 @@ Blackbird is designed for SwiftUI, offering async-loading, automatically-updatin
 ```swift
 struct RootView: View {
     // The database that all child views will automatically use
-    var database = try! Blackbird.Database.inMemoryDatabase()
+    @StateObject var database = try! Blackbird.Database.inMemoryDatabase()
 
     var body: some View {
         PostListView()
@@ -195,7 +211,9 @@ try await db.transaction { core in
 
 * __Static type reflection for cleaner schema detection:__ Swift currently has no way to reflect a type's properties without creating an instance — [Mirror](https://developer.apple.com/documentation/swift/mirror) only reflects property names and values of given instances. If the language adds static type reflection in the future, my schema detection wouldn't need to rely on a hack using a Decoder to generate empty instances.
 
-* __KeyPath to/from String, static reflection of a type's KeyPaths:__ With the abilities to get a type's available KeyPaths (without some [crazy hacks](https://forums.swift.org/t/getting-keypaths-to-members-automatically-using-mirror/21207)) and create KeyPaths from strings at runtime, many of my hacks using Codable could be replaced with KeyPaths, which would be cleaner and probably much faster.
+* __KeyPath to/from String, static reflection of a type's KeyPaths:__ With the abilities to get a type's available KeyPaths (without some [awful hacks](https://forums.swift.org/t/getting-keypaths-to-members-automatically-using-mirror/21207)) and create KeyPaths from strings at runtime, many of my hacks using Codable could be replaced with KeyPaths, which would be cleaner and probably much faster.
+
+* __Method to get CodingKeys enum names and custom values:__ It's currently impossible to get the names of `CodingKeys` cases without resorting to [this awful hack](https://forums.swift.org/t/getting-the-name-of-a-swift-enum-value/35654/18). Decoders must know these names to perform proper decoding to arbitrary types that may have custom `CodingKeys` declared. If this hack ever stops working, BlackbirdModel cannot support custom `CodingKeys`.
 
 * __Cleaner protocol name (`Blackbird.Model`):__ Protocols can't contain dots or be nested within another type.
 

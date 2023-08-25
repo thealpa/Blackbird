@@ -217,7 +217,9 @@ final class BlackbirdTestTests: XCTestCase, @unchecked Sendable {
 
         // Structured queries
         let first100 =  try await TestModelWithDescription.read(from: db, orderBy: .ascending(\.$id), limit: 100)
-        let matches0a = try await TestModelWithDescription.read(from: db, matching: \.$id == 123)
+        let matches0a1 = try await TestModelWithDescription.read(from: db, matching: \.$id == 123)
+        let matches0a2 = try await TestModelWithDescription.read(from: db, primaryKey: 123)
+        let matches0a3 = try await TestModelWithDescription.query(in: db, columns: [\.$title], primaryKey: 123)
         let matches0b = try await TestModelWithDescription.read(from: db, matching: \.$id == 123 && \.$title == "Hi" || \.$id > 2)
         let matches0c = try await TestModelWithDescription.read(from: db, matching: \.$url != nil)
         let matches0d = try await TestModelWithDescription.read(from: db, matching: .valueIn(\.$id, [1, 2, 3]))
@@ -228,8 +230,12 @@ final class BlackbirdTestTests: XCTestCase, @unchecked Sendable {
         XCTAssert(first100.count == 100)
         XCTAssert(first100.first!.id == 0)
         XCTAssert(first100.last!.id == 99)
-        XCTAssert(matches0a.count == 1)
-        XCTAssert(matches0a.first!.id == 123)
+        XCTAssert(matches0a1.count == 1)
+        XCTAssert(matches0a1.first!.id == 123)
+        XCTAssert(matches0a2 != nil)
+        XCTAssert(matches0a2!.id == 123)
+        XCTAssert(matches0a3 != nil)
+        XCTAssert(matches0a3![\.$title] == matches0a2!.title)
         XCTAssert(matches0b.count == 997)
         XCTAssert(matches0c.count == 1000)
         XCTAssert(matches0d.count == 3)
@@ -240,10 +246,13 @@ final class BlackbirdTestTests: XCTestCase, @unchecked Sendable {
         try await MulticolumnPrimaryKeyTest.update(in: db, set: [\.$episodeID: 5], forMulticolumnPrimaryKeys: [[1, 1, 1], [2, 2, 2], [3, 1, 1]])
         let multiID1 = try await MulticolumnPrimaryKeyTest.read(from: db, multicolumnPrimaryKey: [1, 1, 5])
         let multiID2 = try await MulticolumnPrimaryKeyTest.read(from: db, multicolumnPrimaryKey: [2, 2, 5])
+        let multiID2b = try await MulticolumnPrimaryKeyTest.query(in: db, columns: [\.$userID], multicolumnPrimaryKey: [2, 2, 5])
         let multiID3 = try await MulticolumnPrimaryKeyTest.read(from: db, multicolumnPrimaryKey: [3, 3, 5])
         XCTAssert(multiID1!.episodeID == 5)
         XCTAssert(multiID2!.episodeID == 5)
         XCTAssert(multiID3 == nil)
+        XCTAssert(multiID2b != nil)
+        XCTAssert(multiID2b![\.$userID] == multiID2!.userID)
 
         try await TestModelWithDescription.update(in: db, set: [\.$title: "(new)"], forPrimaryKeys: [1, 2, 3])
         let id1 = try await TestModelWithDescription.read(from: db, id: 1)
@@ -526,6 +535,40 @@ final class BlackbirdTestTests: XCTestCase, @unchecked Sendable {
         XCTAssertNoThrow(try Blackbird.Database(path: sqliteFilename)) // should be OK to reuse a path after .close()
     
         await AssertThrowsErrorAsync(try await db1.execute("PRAGMA user_version = 1")) // so db1 doesn't get deallocated until after this and we test throwing errors for accessing a closed DB
+    }
+    
+    func testCodingKeys() async throws {
+        let db = try Blackbird.Database(path: sqliteFilename, options: [.debugPrintEveryQuery, .debugPrintEveryReportedChange])
+        
+        let id = TestData.randomInt64()
+        let title = TestData.randomTitle
+        let desc = TestData.randomDescription
+        
+        let t = TestCodingKeys(id: id, title: title, description: desc)
+        try await t.write(to: db)
+        
+        let readBack = try await TestCodingKeys.read(from: db, id: id)
+        XCTAssertNotNil(readBack)
+        XCTAssert(readBack!.id == id)
+        XCTAssert(readBack!.title == title)
+        XCTAssert(readBack!.description == desc)
+        
+        let jsonEncoder = JSONEncoder()
+        let data = try jsonEncoder.encode(readBack)
+        let decoder = JSONDecoder()
+        let decoded = try decoder.decode(TestCodingKeys.self, from: data)
+        XCTAssert(decoded.id == id)
+        XCTAssert(decoded.title == title)
+        XCTAssert(decoded.description == desc)
+
+        let custom = try decoder.decode(TestCustomDecoder.self, from: """
+            {"idStr":"123","nameStr":"abc","thumbStr":"https://google.com/"}
+        """.data(using: .utf8)!)
+        XCTAssert(custom.id == 123)
+        XCTAssert(custom.name == "abc")
+        XCTAssert(custom.thumbnail == URL(string: "https://google.com/")!)
+        
+        try await custom.write(to: db)
     }
 
     func testSchemaChangeAddPrimaryKeyColumn() async throws {
