@@ -63,7 +63,11 @@ final class BlackbirdTestTests: XCTestCase, @unchecked Sendable {
     }
 
     override func tearDownWithError() throws {
-        if sqliteFilename != "", sqliteFilename != ":memory:", FileManager.default.fileExists(atPath: sqliteFilename) { try FileManager.default.removeItem(atPath: sqliteFilename) }
+        if sqliteFilename != "", sqliteFilename != ":memory:", FileManager.default.fileExists(atPath: sqliteFilename) {
+            for path in Blackbird.Database.allFilePaths(for: sqliteFilename) {
+                try? FileManager.default.removeItem(atPath: path)
+            }
+        }
     }
 
     // Use XCTAssert and related functions to verify your tests produce the correct results.
@@ -1262,6 +1266,33 @@ final class BlackbirdTestTests: XCTestCase, @unchecked Sendable {
 //            guard let instance = try await result.instance(from: db3) else { continue }
 //            print("[#] id \(instance.id), cat \(instance.category), title: [\(result.highlighted(\.$title)!)], keywords: [\(result.snippet(\.$keywords) ?? "--")]")
 //        }
+    }
+
+    func testBackup() async throws {
+        let db = try Blackbird.Database(path: sqliteFilename)
+        for i in 0..<1000 {
+            try await TestModel(id: Int64(i), title: TestData.randomTitle, url: TestData.randomURL).write(to: db)
+        }
+        let backupFilePath = sqliteFilename + ".backup"
+        print("Creating backup at \(backupFilePath)")
+        
+        defer {
+            for path in Blackbird.Database.allFilePaths(for: backupFilePath) {
+                try? FileManager.default.removeItem(atPath: path)
+            }
+        }
+        
+        try await db.core.backup(to: backupFilePath, pagesPerStep: 100, printProgress: true)
+        
+        let backupDb = try Blackbird.Database(path: backupFilePath)
+         
+        let modelsInDb = try await TestModel.read(from: db)
+        let modelsInBackupDb = try await TestModel.read(from: backupDb)
+
+        XCTAssert(modelsInDb == modelsInBackupDb)
+
+        await db.close()
+        await backupDb.close()
     }
 
 
